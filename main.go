@@ -4,8 +4,6 @@ package main
 import (
 	"cmp"
 	"crypto/tls"
-	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -21,7 +19,7 @@ import (
 func main() {
 	cfg, errs := config.LoadConfig()
 	if len(errs) > 0 {
-		logger.StderrWithSource.Error("configuration error(s) found", logger.ErrorsAttr(errs...))
+		logger.StderrWithSource.Error().Strs("errors", logger.ErrorsValue(errs...)).Msg("configuration error(s) found")
 		os.Exit(1)
 	}
 
@@ -32,19 +30,19 @@ func main() {
 		Ephemeral:    false,
 		ControlURL:   cfg.TSLoginServer,
 		UserLogf: func(format string, v ...any) {
-			logger.Stdout.Info(fmt.Sprintf(format, v...))
+			logger.Stdout.Info().Msgf(format, v...)
 		},
 		Dir: filepath.Join(cfg.TSStateDirPath, "railtail"),
 	}
 	if err := ts.Start(); err != nil {
-		logger.StderrWithSource.Error("failed to start tailscale network server", logger.ErrAttr(err))
+		logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to start tailscale network server")
 		os.Exit(1)
 	}
 
 	defer func(ts *tsnet.Server) {
 		err := ts.Close()
 		if err != nil {
-			logger.StderrWithSource.Error("failed to close tailscale network server", logger.ErrAttr(err))
+			logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to close tailscale network server")
 		}
 	}(ts)
 
@@ -53,33 +51,32 @@ func main() {
 	// Create the directory if it doesn't exist
 	stateDir := filepath.Join(cfg.TSStateDirPath, "railtail")
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
-		logger.StderrWithSource.Error("failed to create state directory", logger.ErrAttr(err))
+		logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to create state directory")
 		os.Exit(1)
 	}
 
-	logger.Stdout.Info("🚀 Starting railtail",
-		slog.String("ts-hostname", cfg.TSHostname),
-		slog.String("listen-addr", listenAddr),
-		slog.String("target-addr", cfg.TargetAddr),
-		slog.String("ts-login-server", cmp.Or(cfg.TSLoginServer, "using_default")),
-		slog.String("ts-state-dir", stateDir),
-		slog.Bool("insecure-skip-verify", cfg.InsecureSkipVerify),
-	)
+	logger.Stdout.Info().
+		Str("ts-hostname", cfg.TSHostname).
+		Str("listen-addr", listenAddr).
+		Str("target-addr", cfg.TargetAddr).
+		Str("ts-login-server", cmp.Or(cfg.TSLoginServer, "using_default")).
+		Str("ts-state-dir", stateDir).
+		Bool("insecure-skip-verify", cfg.InsecureSkipVerify).
+		Msg("🚀 Starting railtail")
 
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		logger.StderrWithSource.Error("failed to start local listener", logger.ErrAttr(err))
+		logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to start local listener")
 		os.Exit(1)
 	}
 
 	// Get the HTTP client from Tailscale - needed for both HTTP and Tailnet proxy modes
 	httpClient := ts.HTTPClient()
-	
+
 	// Safety check for nil transport
 	transport, ok := httpClient.Transport.(*http.Transport)
 	if !ok {
-		logger.StderrWithSource.Error("failed to get HTTP transport", 
-			slog.String("err", "unexpected transport type"))
+		logger.StderrWithSource.Error().Str("err", "unexpected transport type").Msg("failed to get HTTP transport")
 		os.Exit(1)
 	}
 
@@ -89,14 +86,14 @@ func main() {
 	}
 
 	if cfg.ForwardTrafficType == config.ForwardTrafficTypeTailnetProxy {
-		logger.Stdout.Info("running in Tailnet Proxy mode",
-			slog.String("listen-addr", listenAddr),
-			slog.Bool("proxy-mode", cfg.ProxyMode),
-		)
-		
+		logger.Stdout.Info().
+			Str("listen-addr", listenAddr).
+			Bool("proxy-mode", cfg.ProxyMode).
+			Msg("running in Tailnet Proxy mode")
+
 		// Create a tailnet proxy handler
 		tailnetProxy := NewTailnetProxy(httpClient, cfg.InsecureSkipVerify)
-		
+
 		// Setup the HTTP server
 		server := http.Server{
 			IdleTimeout:       60 * time.Second,
@@ -105,27 +102,28 @@ func main() {
 			MaxHeaderBytes:    1 << 20, // 1MB
 			Handler:           tailnetProxy,
 		}
-		
+
 		// Start serving requests
 		if err := server.Serve(listener); err != nil {
-			logger.StderrWithSource.Error("failed to start tailnet proxy server", logger.ErrAttr(err))
+			logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to start tailnet proxy server")
 			os.Exit(1)
 		}
 	} else if cfg.ForwardTrafficType == config.ForwardTrafficTypeHTTP || cfg.ForwardTrafficType == config.ForwardTrafficTypeHTTPS {
-		logger.Stdout.Info("running in HTTP/s proxy mode (http(s):// scheme detected in targetAddr)",
-			slog.String("listen-addr", listenAddr),
-			slog.String("target-addr", cfg.TargetAddr),
-		)
+		logger.Stdout.Info().
+			Str("listen-addr", listenAddr).
+			Str("target-addr", cfg.TargetAddr).
+			Msg("running in HTTP/s proxy mode (http(s):// scheme detected in targetAddr)")
 
 		// Get the HTTP client from Tailscale
 		httpClient := ts.HTTPClient()
-		
+
 		// Safety check for nil transport - this should never happen,
 		// but we want to avoid panics if the library changes
 		transport, ok := httpClient.Transport.(*http.Transport)
 		if !ok {
-			logger.StderrWithSource.Error("failed to get HTTP transport", 
-				slog.String("err", "unexpected transport type"))
+			logger.StderrWithSource.Error().
+				Str("err", "unexpected transport type").
+				Msg("failed to get HTTP transport")
 			os.Exit(1)
 		}
 
@@ -138,64 +136,68 @@ func main() {
 			IdleTimeout:       60 * time.Second,
 			ReadHeaderTimeout: 5 * time.Second,
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				forwardingInfo := []any{
-					slog.String("remote-addr", r.RemoteAddr),
-					slog.String("target", cfg.TargetAddr),
-				}
-
-				logger.Stdout.Info("forwarding", forwardingInfo...)
+				logger.Stdout.Info().
+					Str("remote-addr", r.RemoteAddr).
+					Str("target", cfg.TargetAddr).
+					Msg("forwarding")
 
 				if err := fwdHttp(httpClient, cfg.TargetAddr, w, r); err != nil {
-					logger.StderrWithSource.Error("failed to forward http request", append([]any{logger.ErrAttr(err)}, forwardingInfo...)...)
+					logger.StderrWithSource.Error().
+						Str(logger.ErrAttr(err), logger.ErrValue(err)).
+						Str("remote-addr", r.RemoteAddr).
+						Str("target", cfg.TargetAddr).
+						Msg("failed to forward http request")
 				}
 			}),
 		}
 
 		if err := server.Serve(listener); err != nil {
-			logger.StderrWithSource.Error("failed to start http server", logger.ErrAttr(err))
+			logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to start http server")
 			os.Exit(1)
 		}
 
 	} else {
 		// TCP mode
-		logger.Stdout.Info("running in TCP tunnel mode (no HTTP scheme detected in targetAddr)",
-			slog.String("listen-addr", listenAddr),
-			slog.String("target-addr", cfg.TargetAddr),
-		)
+		logger.Stdout.Info().
+			Str("listen-addr", listenAddr).
+			Str("target-addr", cfg.TargetAddr).
+			Msg("running in TCP tunnel mode (no HTTP scheme detected in targetAddr)")
 
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				logger.StderrWithSource.Error("failed to accept connection", logger.ErrAttr(err))
+				logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to accept connection")
 				continue
 			}
 
-			forwardingInfo := []any{
-				slog.String("local-addr", conn.LocalAddr().String()),
-				slog.String("remote-addr", conn.RemoteAddr().String()),
-				slog.String("target", cfg.TargetAddr),
-			}
+			logEvent := logger.Stdout.Info().
+				Str("local-addr", conn.LocalAddr().String()).
+				Str("remote-addr", conn.RemoteAddr().String()).
+				Str("target", cfg.TargetAddr)
 
-			logger.Stdout.Info("forwarding tcp connection", forwardingInfo...)
+			logEvent.Msg("forwarding tcp connection")
 
 			// Use a separate variable to capture the connection for the goroutine
-			go func(clientConn net.Conn, connInfo []any) {
-				// We need to use a copy of the forwarding info to prevent race conditions
-				// with the parent goroutine that's accepting connections
-				connForwardingInfo := make([]any, len(connInfo))
-				copy(connForwardingInfo, connInfo)
-				
+			go func(clientConn net.Conn) {
 				// Set connection timeout
 				if err := clientConn.SetDeadline(time.Now().Add(5 * time.Minute)); err != nil {
-					logger.StderrWithSource.Error("failed to set connection deadline",
-						append([]any{logger.ErrAttr(err)}, connForwardingInfo...)...)
+					logger.StderrWithSource.Error().
+						Str(logger.ErrAttr(err), logger.ErrValue(err)).
+						Str("local-addr", clientConn.LocalAddr().String()).
+						Str("remote-addr", clientConn.RemoteAddr().String()).
+						Str("target", cfg.TargetAddr).
+						Msg("failed to set connection deadline")
 				}
 
 				if err := fwdTCP(clientConn, ts, cfg.TargetAddr); err != nil {
-					logger.StderrWithSource.Error("forwarding failed",
-						append([]any{logger.ErrAttr(err)}, connForwardingInfo...)...)
+					logger.StderrWithSource.Error().
+						Str(logger.ErrAttr(err), logger.ErrValue(err)).
+						Str("local-addr", clientConn.LocalAddr().String()).
+						Str("remote-addr", clientConn.RemoteAddr().String()).
+						Str("target", cfg.TargetAddr).
+						Msg("forwarding failed")
 				}
-			}(conn, forwardingInfo)
+			}(conn)
 		}
 	}
 }

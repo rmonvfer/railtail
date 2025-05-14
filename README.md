@@ -1,8 +1,11 @@
-# <img align="left" width="40" height="40" src="https://res.cloudinary.com/railway/image/upload/v1734036971/railtail_avdaue.png" alt="railtail logo"> railtail
+# 🚅 Railtail
 
 Railtail is an HTTP/TCP proxy for Railway workloads connecting to Tailscale
 nodes. It listens on a local address and forwards traffic it receives on
 the local address to a target Tailscale node address.
+
+It can also serve as a general HTTP proxy to forward connections from external services
+into your tailnet.
 
 Features:
 - **Dual Protocol Support**: Works with both HTTP and TCP connections
@@ -15,24 +18,14 @@ Features:
 
 ## Usage
 
-### Deploying to Railway (Recommended)
+### Deploying to Railway
 
 1. [Install and setup Tailscale](https://tailscale.com/kb/1017/install) on the
    machine you want to connect to. If you're using Tailscale as a subnet
    router, ensure you advertise the correct routes and approve the subnets
    in the Tailscale admin console.
 
-2. Deploy this template to Railway:
-
-   [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/railtail?referralCode=EPXG5z)
-
-3. In services that need to connect to the Tailscale node, connect to your
-   railtail service using the `RAILWAY_PRIVATE_DOMAIN` and `LISTEN_PORT`
-   variables. For example:
-
-   ```sh
-   MY_PRIVATE_TAILSCALE_SERVICE="http://{{railtail.RAILWAY_PRIVATE_DOMAIN}}:${{railtail.LISTEN_PORT}}"
-   ```
+2. Deploy this service to Railway as a container.
 
 Look at the [Examples](#examples) section for provider-specific examples.
 
@@ -40,7 +33,7 @@ Look at the [Examples](#examples) section for provider-specific examples.
 
 To run railtail locally, follow these steps:
 
-1. [Install Go](https://go.dev/doc/install) if you haven't already (minimum version: Go 1.20).
+1. [Install Go](https://go.dev/doc/install) if you haven't already.
 
 2. Clone this repository:
    ```sh
@@ -95,16 +88,16 @@ Railtail has three operating modes:
 2. **HTTP Forwarding Mode**: Set `TARGET_ADDR` with `http://` or `https://` scheme (like `http://100.100.100.100:8080`)
 3. **Tailnet Proxy Mode**: Set `PROXY_MODE=true` and omit `TARGET_ADDR` to proxy requests to any tailnet host
 
-| Environment Variable    | CLI Argument               | Description                                                                                                                                                   |
-|------------------------|----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `TARGET_ADDR`           | `-target-addr`             | Required when not in proxy mode. Address of the Tailscale node to send traffic to. Omit when using `PROXY_MODE=true`.                                        |
-| `PROXY_MODE`            | `-proxy-mode`              | Optional. Set to `true` to run as a general tailnet proxy without requiring a specific target address. When enabled, `TARGET_ADDR` is not needed.            |
-| `LISTEN_PORT`           | `-listen-port`             | Required. Port to listen on.                                                                                                                                  |
-| `TS_HOSTNAME`           | `-ts-hostname`             | Required. Hostname to use for Tailscale.                                                                                                                      |
-| `TS_AUTH_KEY`           | N/A                        | Required. Tailscale auth key. Must be set in environment.                                                                                                     |
-| `TS_LOGIN_SERVER`       | `-ts-login-server`         | Optional. Base URL of the control server. If you are using Headscale for your control server, use your Headscale instance's url. Defaults to using Tailscale. |
-| `TS_STATEDIR_PATH`      | `-ts-state-dir`            | Optional. Tailscale state dir. Defaults to `/tmp/railtail`.                                                                                                   |
-| `INSECURE_SKIP_VERIFY`  | `-insecure-skip-verify`    | Optional. Skip TLS certificate verification when connecting via HTTPS. Defaults to `true`. Set to `false` to enable certificate validation.                    |
+| Environment Variable   | CLI Argument            | Description                                                                                                                                                   |
+|------------------------|-------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `TARGET_ADDR`          | `-target-addr`          | Required when not in proxy mode. Address of the Tailscale node to send traffic to. Omit when using `PROXY_MODE=true`.                                         |
+| `PROXY_MODE`           | `-proxy-mode`           | Optional. Set to `true` to run as a general tailnet proxy without requiring a specific target address. When enabled, `TARGET_ADDR` is not needed.             |
+| `LISTEN_PORT`          | `-listen-port`          | Required. Port to listen on.                                                                                                                                  |
+| `TS_HOSTNAME`          | `-ts-hostname`          | Required. Hostname to use for Tailscale.                                                                                                                      |
+| `TS_AUTH_KEY`          | N/A                     | Required. Tailscale auth key. Must be set in environment.                                                                                                     |
+| `TS_LOGIN_SERVER`      | `-ts-login-server`      | Optional. Base URL of the control server. If you are using Headscale for your control server, use your Headscale instance's url. Defaults to using Tailscale. |
+| `TS_STATEDIR_PATH`     | `-ts-state-dir`         | Optional. Tailscale state dir. Defaults to `/tmp/railtail`.                                                                                                   |
+| `INSECURE_SKIP_VERIFY` | `-insecure-skip-verify` | Optional. Skip TLS certificate verification when connecting via HTTPS. Defaults to `true`. Set to `false` to enable certificate validation.                   |
 
 _CLI arguments will take precedence over environment variables._
 
@@ -192,7 +185,7 @@ connect to over Railway's Private Network.
    curl http://localhost:3000/api/endpoint
    ```
 
-### Using as a General Tailnet Proxy (NEW)
+### Using as a General Tailnet Proxy
 
 This mode allows you to use railtail as a general HTTP proxy to access any host in your tailnet without specifying a single target:
 
@@ -247,192 +240,6 @@ This mode allows you to use railtail as a general HTTP proxy to access any host 
          - TS_HOSTNAME=railtail-proxy
          - TS_AUTH_KEY=tskey-auth-xxxxxxxxxxxx-yyyyyyyyyyyyyyyyyyyyyyy
    ```
-
-### Complete Example: Node.js App Accessing Tailnet Services
-
-Here's a complete example of a Node.js application in Railway accessing multiple tailnet services through railtail:
-
-1. **Deploy railtail to Railway:**
-   - Create a new service called `tailnet-proxy`
-   - Set environment variables:
-     ```
-     PROXY_MODE=true
-     LISTEN_PORT=8080
-     TS_HOSTNAME=railway-proxy
-     TS_AUTH_KEY=tskey-auth-xxxxxxxxxxxx-yyyyyyyyyyyyyyyyyyyyyyy
-     ```
-   - Make sure the service is NOT exposed publicly (keep it private)
-
-2. **Configure your Node.js app:**
-   - Add the following environment variables to your app service:
-     ```
-     HTTP_PROXY=http://tailnet-proxy.railway.internal:8080
-     HTTPS_PROXY=http://tailnet-proxy.railway.internal:8080
-     NO_PROXY=railway.app,railway.internal
-     ```
-
-3. **Access any tailnet resource from your app:**
-
-   ```javascript
-   // app.js
-   const axios = require('axios');
-   const express = require('express');
-   const app = express();
-   
-   // Axios will automatically use the HTTP_PROXY environment variable
-   
-   app.get('/db-info', async (req, res) => {
-     try {
-       // Access a database server in your tailnet
-       const dbInfo = await axios.get('http://db-server.ts.net:8080/info');
-       res.json(dbInfo.data);
-     } catch (error) {
-       res.status(500).json({ error: error.message });
-     }
-   });
-   
-   app.get('/api-data', async (req, res) => {
-     try {
-       // Access another API server in your tailnet
-       const apiData = await axios.get('http://api-server.ts.net:3000/data');
-       res.json(apiData.data);
-     } catch (error) {
-       res.status(500).json({ error: error.message });
-     }
-   });
-   
-   app.listen(3000, () => {
-     console.log('Server running on port 3000');
-   });
-   ```
-
-4. **Add proxy support to package.json for other dependencies:**
-
-   ```json
-   {
-     "name": "my-app",
-     "version": "1.0.0",
-     "scripts": {
-       "start": "node app.js",
-       "dev": "nodemon app.js"
-     },
-     "dependencies": {
-       "axios": "^1.6.0",
-       "express": "^4.18.2"
-     },
-     "proxy": "http://tailnet-proxy.railway.internal:8080"
-   }
-   ```
-
-This setup allows your Node.js application to communicate with any server in your tailnet as if they were directly accessible, without having to configure specific forwarding rules for each service.
-
-### Python Example with Requests Library
-
-Python applications can also easily use railtail as a proxy:
-
-```python
-# app.py
-import os
-import requests
-from flask import Flask, jsonify
-
-app = Flask(__name__)
-
-# Configure the proxy for the requests library
-proxies = {
-    "http": os.environ.get("HTTP_PROXY", "http://tailnet-proxy.railway.internal:8080"),
-    "https": os.environ.get("HTTPS_PROXY", "http://tailnet-proxy.railway.internal:8080")
-}
-
-@app.route('/internal-api')
-def get_internal_api():
-    try:
-        # This API server is only accessible via tailnet
-        response = requests.get('http://api.internal.ts.net/data', 
-                                proxies=proxies, 
-                                timeout=10)
-        return jsonify(response.json())
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/database-status')
-def get_database_status():
-    try:
-        # This database server is only accessible via tailnet
-        response = requests.get('http://db.internal.ts.net:8080/status', 
-                               proxies=proxies, 
-                               timeout=5)
-        return jsonify(response.json())
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
-```
-
-Deploy this with environment variables:
-```
-HTTP_PROXY=http://tailnet-proxy.railway.internal:8080
-HTTPS_PROXY=http://tailnet-proxy.railway.internal:8080
-NO_PROXY=railway.app,railway.internal
-```
-
-### Go Example
-
-Go applications can use the proxy through the standard library's HTTP client:
-
-```go
-package main
-
-import (
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"os"
-)
-
-func main() {
-	// Set up the proxy URL from environment variables
-	proxyURLStr := os.Getenv("HTTP_PROXY")
-	if proxyURLStr == "" {
-		proxyURLStr = "http://tailnet-proxy.railway.internal:8080"
-	}
-	
-	proxyURL, err := url.Parse(proxyURLStr)
-	if err != nil {
-		fmt.Printf("Error parsing proxy URL: %v\n", err)
-		return
-	}
-	
-	// Create a custom transport with the proxy
-	transport := &http.Transport{
-		Proxy: http.ProxyURL(proxyURL),
-	}
-	
-	// Create an HTTP client with the custom transport
-	client := &http.Client{
-		Transport: transport,
-	}
-	
-	// Use the client to make requests to tailnet hosts
-	resp, err := client.Get("http://internal-service.ts.net:8080/api/data")
-	if err != nil {
-		fmt.Printf("Error making request: %v\n", err)
-		return
-	}
-	defer resp.Body.Close()
-	
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Printf("Error reading response: %v\n", err)
-		return
-	}
-	
-	fmt.Println("Response:", string(body))
-}
-```
 
 ## Development
 

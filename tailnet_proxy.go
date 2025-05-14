@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/rmonvfer/railtail/internal/logger"
-	"log/slog"
 )
 
 // TailnetProxy is a general proxy for the tailnet that forwards requests to their
@@ -38,24 +37,30 @@ func (p *TailnetProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	targetURL := scheme + targetHost
 	if targetHost == "" {
 		http.Error(w, "No Host header provided", http.StatusBadRequest)
-		logger.StderrWithSource.Error("no host header in request",
-			slog.String("remote-addr", r.RemoteAddr))
+		logger.StderrWithSource.Error().
+			Str("remote-addr", r.RemoteAddr).
+			Msg("no host header in request")
 		return
 	}
 
 	// Log the forwarding
-	forwardingInfo := []any{
-		slog.String("remote-addr", r.RemoteAddr),
-		slog.String("host", targetHost),
-		slog.String("target-url", targetURL),
-		slog.String("method", r.Method),
-		slog.String("path", r.URL.Path),
-	}
-	logger.Stdout.Info("tailnet proxy forwarding", forwardingInfo...)
+	logger.Stdout.Info().
+		Str("remote-addr", r.RemoteAddr).
+		Str("host", targetHost).
+		Str("target-url", targetURL).
+		Str("method", r.Method).
+		Str("path", r.URL.Path).
+		Msg("tailnet proxy forwarding")
 
 	// Use the HTTP forwarding function to forward the request
 	if err := fwdHttp(p.httpClient, targetURL, w, r); err != nil {
-		logger.StderrWithSource.Error("failed to forward request",
-			append([]any{logger.ErrAttr(err)}, forwardingInfo...)...)
+		logger.StderrWithSource.Error().
+			Str(logger.ErrAttr(err), logger.ErrValue(err)).
+			Str("remote-addr", r.RemoteAddr).
+			Str("host", targetHost).
+			Str("target-url", targetURL).
+			Str("method", r.Method).
+			Str("path", r.URL.Path).
+			Msg("failed to forward request")
 	}
 }
