@@ -1,4 +1,4 @@
-module github.com/half0wl/railtail
+module github.com/rmonvfer/railtail
 
 go 1.23.4
 

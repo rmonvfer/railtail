@@ -44,7 +44,7 @@ func ParseConfig(cfg any) []error {
 		field := t.Field(i)
 		fieldValue := v.Field(i)
 
-		// Skip if field has no tags at all
+		// Skip if the field has no tags at all
 		if field.Tag == "" {
 			continue
 		}
@@ -63,7 +63,7 @@ func ParseConfig(cfg any) []error {
 			}
 		}
 
-		// If no value set yet, use default value if present
+		// If no value set yet, use the default value if present
 		if fieldValue.String() == "" {
 			if _, exists := field.Tag.Lookup("default"); exists {
 				fieldValue.SetString(field.Tag.Get("default"))

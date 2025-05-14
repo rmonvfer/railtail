@@ -10,7 +10,7 @@ func ErrAttr(err error) slog.Attr {
 }
 
 func ErrorsAttr(errors ...error) slog.Attr {
-	stringErrors := []string{}
+	var stringErrors []string
 
 	for _, err := range errors {
 		stringErrors = append(stringErrors, strings.TrimSpace(err.Error()))
