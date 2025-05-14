@@ -138,9 +138,7 @@ connect to over Railway's Private Network.
    sudo tailscale up --reset --advertise-routes=172.31.0.0/16
    ```
 
-2. Deploy railtail into your pre-existing Railway project:
-
-   [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/railtail?referralCode=EPXG5z)
+2. Deploy railtail into your pre-existing Railway project.
 
 3. Use your new railtail service's Private Domain to connect to your RDS instance:
 
