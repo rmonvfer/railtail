@@ -1,4 +1,3 @@
-// Package main provides a HTTP/TCP proxy for connecting Railway workloads to Tailscale nodes.
 package main
 
 import (
@@ -10,14 +9,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/rmonvfer/railtail/internal/config"
 	"github.com/rmonvfer/railtail/internal/logger"
 
 	"tailscale.com/tsnet"
 )
 
 func main() {
-	cfg, errs := config.LoadConfig()
+	cfg, errs := LoadConfig() // Changed from config.LoadConfig()
 	if len(errs) > 0 {
 		logger.StderrWithSource.Error().Strs("errors", logger.ErrorsValue(errs...)).Msg("configuration error(s) found")
 		os.Exit(1)
@@ -85,7 +83,7 @@ func main() {
 		InsecureSkipVerify: cfg.InsecureSkipVerify,
 	}
 
-	if cfg.ForwardTrafficType == config.ForwardTrafficTypeTailnetProxy {
+	if cfg.ForwardTrafficType == ForwardTrafficTypeTailnetProxy { // Changed from config.ForwardTrafficTypeTailnetProxy
 		logger.Stdout.Info().
 			Str("listen-addr", listenAddr).
 			Bool("proxy-mode", cfg.ProxyMode).
@@ -108,7 +106,7 @@ func main() {
 			logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to start tailnet proxy server")
 			os.Exit(1)
 		}
-	} else if cfg.ForwardTrafficType == config.ForwardTrafficTypeHTTP || cfg.ForwardTrafficType == config.ForwardTrafficTypeHTTPS {
+	} else if cfg.ForwardTrafficType == ForwardTrafficTypeHTTP || cfg.ForwardTrafficType == ForwardTrafficTypeHTTPS { // Changed from config.ForwardTrafficType*
 		logger.Stdout.Info().
 			Str("listen-addr", listenAddr).
 			Str("target-addr", cfg.TargetAddr).

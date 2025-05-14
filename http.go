@@ -1,4 +1,3 @@
-// Package main provides railtail HTTP and TCP proxying functionality.
 package main
 
 import (
@@ -31,15 +30,15 @@ func fwdHttp(outboundClient *http.Client, targetAddr string, w http.ResponseWrit
 				mu.Unlock()
 				return
 			}
-			
+
 			// Update the request with the new target URL
 			req.URL = targetURL
 			req.Host = req.URL.Host
-			
-			// We don't need to manually copy headers here as ReverseProxy 
+
+			// We don't need to manually copy headers here as ReverseProxy
 			// handles that for us. The outbound request inherits headers
 			// from the original request.
-			
+
 			// Remove any hop-by-hop headers to avoid potential issues
 			// This is important for proxies to prevent header leakage
 			for _, h := range hopHeaders {
