@@ -53,6 +53,7 @@ type Config struct {
 // Environment variables are loaded first, then overridden by flags if provided.
 // Returns the loaded config and any validation errors.
 func LoadConfig() (*Config, []error) {
+
 	// Initialize with environment variables and defaults
 	cfg, envErrors := loadEnvironmentConfig()
 
@@ -81,7 +82,10 @@ func loadEnvironmentConfig() (*Config, []error) {
 
 	err := cleanenv.ReadEnv(&cfg)
 	if err != nil {
-		environmentErrors = append(environmentErrors, fmt.Errorf("error reading environment config: %w", err))
+		environmentErrors = append(
+			environmentErrors,
+			fmt.Errorf("error reading environment config: %w", err),
+		)
 	}
 
 	return &cfg, environmentErrors
@@ -89,6 +93,7 @@ func loadEnvironmentConfig() (*Config, []error) {
 
 // parseFlags defines and parses command-line flags, updating the provided config.
 func parseFlags(cfg *Config) {
+
 	// Define flags, using current cfg values as defaults
 	flag.StringVar(
 		&cfg.TSHostname,
@@ -181,8 +186,10 @@ func determineAndValidateTrafficType(cfg *Config) []error {
 	switch protocol {
 	case "http":
 		cfg.ForwardTrafficType = ForwardTrafficTypeHTTP
+
 	case "https":
 		cfg.ForwardTrafficType = ForwardTrafficTypeHTTPS
+
 	default:
 		cfg.ForwardTrafficType = ForwardTrafficTypeTCP
 	}

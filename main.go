@@ -1,7 +1,7 @@
 package main
 
 import (
-	"cmp"
+	"context"
 	"crypto/tls"
 	"net"
 	"net/http"
@@ -10,14 +10,15 @@ import (
 	"time"
 
 	"github.com/rmonvfer/railtail/internal/logger"
-
 	"tailscale.com/tsnet"
 )
 
 func main() {
 	cfg, errs := LoadConfig()
 	if len(errs) > 0 {
-		logger.StderrWithSource.Error().Strs("errors", logger.ErrorsValue(errs...)).Msg("configuration error(s) found")
+		logger.StderrWithSource.Error().
+			Strs("errors", logger.ErrorsValue(errs...)).
+			Msg("configuration error(s) found")
 		os.Exit(1)
 	}
 
@@ -32,107 +33,86 @@ func main() {
 		},
 		Dir: filepath.Join(cfg.TSStateDirPath, "railtail"),
 	}
-	if err := ts.Start(); err != nil {
-		logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to start tailscale network server")
+
+	// Block until the node is fully online (30 s cap).
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := ts.Up(ctx); err != nil { // Up waits, unlike Start.
+		logger.StderrWithSource.Error().
+			Str(logger.ErrAttr(err), logger.ErrValue(err)).
+			Msg("failed to bring tailscale server up")
 		os.Exit(1)
 	}
-
-	defer func(ts *tsnet.Server) {
-		err := ts.Close()
-		if err != nil {
-			logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to close tailscale network server")
-		}
-	}(ts)
+	defer ts.Close()
 
 	listenAddr := "[::]:" + cfg.ListenPort
-
-	// Create the directory if it doesn't exist
 	stateDir := filepath.Join(cfg.TSStateDirPath, "railtail")
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
-		logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to create state directory")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		logger.StderrWithSource.Error().
+			Str(logger.ErrAttr(err), logger.ErrValue(err)).
+			Msg("failed to create state directory")
 		os.Exit(1)
 	}
 
+	tsLoginServer := cfg.TSLoginServer
+	if tsLoginServer == "" {
+		tsLoginServer = "using_default"
+	}
 	logger.Stdout.Info().
 		Str("ts-hostname", cfg.TSHostname).
 		Str("listen-addr", listenAddr).
 		Str("target-addr", cfg.TargetAddr).
-		Str("ts-login-server", cmp.Or(cfg.TSLoginServer, "using_default")).
+		Str("ts-login-server", tsLoginServer).
 		Str("ts-state-dir", stateDir).
 		Bool("insecure-skip-verify", cfg.InsecureSkipVerify).
 		Msg("🚀 Starting railtail")
 
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to start local listener")
+		logger.StderrWithSource.Error().
+			Str(logger.ErrAttr(err), logger.ErrValue(err)).
+			Msg("failed to start local listener")
 		os.Exit(1)
 	}
 
-	// Get the HTTP client from Tailscale - needed for both HTTP and Tailnet proxy modes
-	httpClient := ts.HTTPClient()
-
-	// Safety check for nil transport
-	transport, ok := httpClient.Transport.(*http.Transport)
-	if !ok {
-		logger.StderrWithSource.Error().Str("err", "unexpected transport type").Msg("failed to get HTTP transport")
-		os.Exit(1)
+	// Custom transport: tailnet dialer, no 5-min tsnet timeout.
+	transport := &http.Transport{
+		DialContext:     ts.Dial,
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: cfg.InsecureSkipVerify},
+		IdleConnTimeout: 90 * time.Second,
 	}
+	httpClient := &http.Client{Transport: transport}
 
-	// Configure TLS settings based on user preferences
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: cfg.InsecureSkipVerify,
-	}
-
-	if cfg.ForwardTrafficType == ForwardTrafficTypeTailnetProxy {
+	switch cfg.ForwardTrafficType {
+	case ForwardTrafficTypeTailnetProxy:
 		logger.Stdout.Info().
 			Str("listen-addr", listenAddr).
 			Bool("proxy-mode", cfg.ProxyMode).
 			Msg("running in Tailnet Proxy mode")
 
-		// Create a tailnet proxy handler
-		tailnetProxy := NewTailnetProxy(httpClient, cfg.InsecureSkipVerify)
-
-		// Setup the HTTP server
 		server := http.Server{
-			IdleTimeout:       60 * time.Second,
+			IdleTimeout:       0,
 			ReadHeaderTimeout: 5 * time.Second,
-			WriteTimeout:      60 * time.Second,
-			MaxHeaderBytes:    1 << 20, // 1MB
-			Handler:           tailnetProxy,
+			WriteTimeout:      0,
+			Handler:           NewTailnetProxy(httpClient, cfg.InsecureSkipVerify),
 		}
-
-		// Start serving requests
 		if err := server.Serve(listener); err != nil {
-			logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to start tailnet proxy server")
+			logger.StderrWithSource.Error().
+				Str(logger.ErrAttr(err), logger.ErrValue(err)).
+				Msg("failed to start tailnet proxy server")
 			os.Exit(1)
 		}
-	} else if cfg.ForwardTrafficType == ForwardTrafficTypeHTTP || cfg.ForwardTrafficType == ForwardTrafficTypeHTTPS {
+
+	case ForwardTrafficTypeHTTP, ForwardTrafficTypeHTTPS:
 		logger.Stdout.Info().
 			Str("listen-addr", listenAddr).
 			Str("target-addr", cfg.TargetAddr).
-			Msg("running in HTTP/s proxy mode (http(s):// scheme detected in targetAddr)")
-
-		// Get the HTTP client from Tailscale
-		httpClient := ts.HTTPClient()
-
-		// Safety check for nil transport - this should never happen,
-		// but we want to avoid panics if the library changes
-		transport, ok := httpClient.Transport.(*http.Transport)
-		if !ok {
-			logger.StderrWithSource.Error().
-				Str("err", "unexpected transport type").
-				Msg("failed to get HTTP transport")
-			os.Exit(1)
-		}
-
-		// Configure TLS settings based on user preferences
-		transport.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: cfg.InsecureSkipVerify,
-		}
+			Msg("running in HTTP/s proxy mode")
 
 		server := http.Server{
-			IdleTimeout:       60 * time.Second,
+			IdleTimeout:       0,
 			ReadHeaderTimeout: 5 * time.Second,
+			WriteTimeout:      0,
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				logger.Stdout.Info().
 					Str("remote-addr", r.RemoteAddr).
@@ -148,51 +128,34 @@ func main() {
 				}
 			}),
 		}
-
 		if err := server.Serve(listener); err != nil {
-			logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to start http server")
+			logger.StderrWithSource.Error().
+				Str(logger.ErrAttr(err), logger.ErrValue(err)).
+				Msg("failed to start http server")
 			os.Exit(1)
 		}
 
-	} else {
-		// TCP mode
+	default: // TCP tunnel
 		logger.Stdout.Info().
 			Str("listen-addr", listenAddr).
 			Str("target-addr", cfg.TargetAddr).
-			Msg("running in TCP tunnel mode (no HTTP scheme detected in targetAddr)")
+			Msg("running in TCP tunnel mode")
 
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				logger.StderrWithSource.Error().Str(logger.ErrAttr(err), logger.ErrValue(err)).Msg("failed to accept connection")
+				logger.StderrWithSource.Error().
+					Str(logger.ErrAttr(err), logger.ErrValue(err)).
+					Msg("failed to accept connection")
 				continue
 			}
 
-			logEvent := logger.Stdout.Info().
-				Str("local-addr", conn.LocalAddr().String()).
-				Str("remote-addr", conn.RemoteAddr().String()).
-				Str("target", cfg.TargetAddr)
-
-			logEvent.Msg("forwarding tcp connection")
-
-			// Use a separate variable to capture the connection for the goroutine
-			go func(clientConn net.Conn) {
-				// Set connection timeout
-				if err := clientConn.SetDeadline(time.Now().Add(5 * time.Minute)); err != nil {
+			go func(c net.Conn) {
+				_ = c.SetDeadline(time.Now().Add(5 * time.Minute))
+				if err := fwdTCP(c, ts, cfg.TargetAddr); err != nil {
 					logger.StderrWithSource.Error().
 						Str(logger.ErrAttr(err), logger.ErrValue(err)).
-						Str("local-addr", clientConn.LocalAddr().String()).
-						Str("remote-addr", clientConn.RemoteAddr().String()).
-						Str("target", cfg.TargetAddr).
-						Msg("failed to set connection deadline")
-				}
-
-				if err := fwdTCP(clientConn, ts, cfg.TargetAddr); err != nil {
-					logger.StderrWithSource.Error().
-						Str(logger.ErrAttr(err), logger.ErrValue(err)).
-						Str("local-addr", clientConn.LocalAddr().String()).
-						Str("remote-addr", clientConn.RemoteAddr().String()).
-						Str("target", cfg.TargetAddr).
+						Str("remote-addr", c.RemoteAddr().String()).
 						Msg("forwarding failed")
 				}
 			}(conn)

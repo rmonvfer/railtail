@@ -1,4 +1,3 @@
-// Package main provides a HTTP/TCP proxy for connecting Railway workloads to Tailscale nodes.
 package main
 
 import (
@@ -28,7 +27,7 @@ func (p *TailnetProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	targetHost := r.Host
 
 	// Default to http:// scheme unless explicitly specified in the URL
-	scheme := "http://"
+	scheme := "http://" // noqa
 	if r.TLS != nil {
 		scheme = "https://"
 	}
