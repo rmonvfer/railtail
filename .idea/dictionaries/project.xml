@@ -2,7 +2,9 @@
   <dictionary name="project">
     <words>
       <w>authkey</w>
+      <w>buildx</w>
       <w>errgroup</w>
+      <w>ghcr</w>
       <w>railtail</w>
       <w>tailnet</w>
     </words>
